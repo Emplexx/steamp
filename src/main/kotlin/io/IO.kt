@@ -44,7 +44,9 @@ fun getGameInfoFile(id: Long) = Paths.get(resDir, "$id")
 
 suspend fun Context.askAndRefresh() {
 
-    val refresh = !getOwnedGamesFile().exists() || run {
+    if (!getOwnedGamesFile().exists()) return
+
+    val refresh = run {
         println("Try refresh cached games? y/n")
         when (readln()) {
             "y", "Y" -> true
