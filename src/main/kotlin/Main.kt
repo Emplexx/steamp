@@ -1,8 +1,5 @@
-@file:OptIn(ExperimentalSerializationApi::class)
-
 package moe.emi.steamp
 
-import kotlinx.serialization.ExperimentalSerializationApi
 import moe.emi.steamp.games.Ach
 
 suspend fun main() {
