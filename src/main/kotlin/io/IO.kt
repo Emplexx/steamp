@@ -2,11 +2,10 @@
 
 package moe.emi.steamp.io
 
-import io.github.j4ckofalltrades.steam_webapi.types.Game
-import io.github.j4ckofalltrades.steam_webapi.types.GetOwnedGamesParams
 import io.github.j4ckofalltrades.steam_webapi.types.OwnedGames
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
+import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.io.path.*
 
@@ -22,117 +21,86 @@ private val resDir = run {
     "$projectDir$resDir"
 }
 
-fun getOwnedGamesFile() = Paths.get(resDir, "ownedGames")
-fun getGameInfoFile(id: Long) = Paths.get(resDir, "$id")
+fun ownedGamesFile(): Path = Paths.get(resDir, "ownedGames")
+fun gameInfoFile(id: Long): Path = Paths.get(resDir, "$id")
 
-//suspend fun Context.getOwnedGames(): OwnedGames {
-//    val file = getOwnedGamesFile()
-//
-//    return if (file.exists()) {
-//        file.readText().let { json.decodeFromString(it) }
-//    }
-//    else {
-//        println("Fetching owned games")
-//        val results = api.playerService().getOwnedGames(steamId, GetOwnedGamesParams(includePlayedFreeGames = true))
-//        val resStr = json.encodeToString(results.response)
-//        val path = getOwnedGamesFile().createFile()
-//        path.writeText(resStr)
-//
-//        results.response
-//    }
-//}
+suspend fun getGames(context: Context): List<GameAchievements> = with(context) {
+    if (ownedGamesFile().exists() && promptRefresh()) refreshOwnedGames()
+    return getAllGames()
+}
 
-suspend fun Context.askAndRefresh() {
-
-    if (!getOwnedGamesFile().exists()) return
-
-    val refresh = run {
-        println("Try refresh cached games? y/n")
-        when (readln()) {
-            "y", "Y" -> true
-            else -> false
-        }
+private fun promptRefresh() = run {
+    println("Try refresh cached games? y/n")
+    when (readln()) {
+        "y", "Y" -> true
+        else -> false
     }
-
-    if (refresh) refreshOwnedGames()
 }
 
 suspend fun Context.refreshOwnedGames() {
-    val (gamesToFetch, newGamesList) = run {
-        val lastGames = getOwnedGamesFile().readText().let { json.decodeFromString<OwnedGames>(it) }.games
-        val lastGamesIds = lastGames.map { it.appId }
 
-        val updatedGames = api.playerService()
-            .getOwnedGames(steamId, GetOwnedGamesParams(includePlayedFreeGames = true))
-        val (sameGames, newGames) = updatedGames.response.games
-            .partition { it.appId in lastGamesIds }
+    val latestGames = apiGetOwnedGames()
 
-        val playedSince = mutableListOf<Game>()
-        for (game in lastGames) {
-            val updatedGame = sameGames.find { it.appId == game.appId } ?: continue
-            if (updatedGame.playtimeForever > game.playtimeForever) playedSince.add(updatedGame)
-        }
-        newGames
-            .let { playedSince.addAll(it) }
+    val gamesToRefresh = run {
 
-        playedSince to updatedGames
+        val localGames = readFromFile<OwnedGames>(ownedGamesFile()).games.associateBy { it.appId }
+
+        latestGames.response.games
+            .partition { it.appId in localGames.keys }
+            .let { (sameGames, newGames) ->
+
+                sameGames
+                    .filter {
+                        val local = localGames[it.appId] ?: return@filter false
+                        it.playtimeForever > local.playtimeForever
+                    }
+                    .plus(newGames)
+            }
     }
 
-    println("Found ${gamesToFetch.size} games to refresh")
+    println("Found ${gamesToRefresh.size} games to refresh")
 
-    for (g in gamesToFetch) getOrDownloadFile(g.appId, force = true)
+    for (game in gamesToRefresh) getGameFromFileOrDownload(game.appId, force = true)
 
-    val resStr = json.encodeToString(newGamesList.response)
-    val path = getOwnedGamesFile().also {
-        if (it.exists()) it.deleteExisting()
-        if (!it.exists()) it.createFile()
-    }
-
-    path.writeText(resStr)
+    latestGames.response.overwriteToFile(ownedGamesFile())
 }
 
 suspend fun Context.getAllGames(): List<GameAchievements> {
-    val games: OwnedGames = if (getOwnedGamesFile().exists()) {
-        getOwnedGamesFile().readText().let { json.decodeFromString(it) }
-    }
-    else {
-        println("Fetching owned games")
-        val results = playerApi.getOwnedGames(steamId, GetOwnedGamesParams(includePlayedFreeGames = true))
-        val resStr = json.encodeToString(results.response)
-        val path = getOwnedGamesFile().createFile()
-        path.writeText(resStr)
 
-        results.response
-    }
-    return games.games.mapNotNull { game ->
-        getOrDownloadFile(game.appId)?.let {
-            GameAchievements(
-                game.appId,
-                it.gameName,
-                it.achievements,
-            )
+    val file = ownedGamesFile()
+
+    val games: OwnedGames =
+        if (file.exists()) readFromFile(file)
+        else {
+            println("Fetching owned games")
+            apiGetOwnedGames()
+                .response
+                .also { it.overwriteToFile(file) }
         }
+
+    return games.games.mapNotNull { game ->
+        getGameFromFileOrDownload(game.appId)
+            ?.let { GameAchievements(game.appId, it.gameName, it.achievements) }
     }
 }
 
-suspend fun Context.getOrDownloadFile(gameId: Long, force: Boolean = false): FuckingAchievements? {
-    val file = getGameInfoFile(gameId)
+suspend fun Context.getGameFromFileOrDownload(gameId: Long, force: Boolean = false): FuckingAchievements? {
+
+    val file = gameInfoFile(gameId)
 
     return if (force || !file.exists()) {
         println("Fetching $gameId")
-
-        val results = api.userStatsApi().getAchievementsGood(key, steamId, gameId)
-        val resStr = json.encodeToString(results)
-        val path = file.also {
-            if (it.exists()) it.deleteExisting()
-            if (!it.exists()) it.createFile()
-        }
-        path.writeText(resStr)
-
-        results
-    } else {
-        return file.readText().let {
-            json.decodeFromString(it)
-        }
-    }
+        api.userStatsApi()
+            .getAchievementsGood(key, steamId, gameId)
+            .also { it.overwriteToFile(file) }
+    } else readFromFile(file)
 }
+
+inline fun <reified T> T.overwriteToFile(file: Path) = json.encodeToString(this)
+    .also {
+        if (file.exists()) file.deleteExisting()
+        file.createFile()
+    }
+    .let(file::writeText)
+
+inline fun <reified T> readFromFile(file: Path): T = file.readText().let { json.decodeFromString(it) }

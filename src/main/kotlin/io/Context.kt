@@ -4,6 +4,7 @@ package moe.emi.steamp.io
 
 import io.github.j4ckofalltrades.steam_webapi.core.SteamWebApi
 import io.github.j4ckofalltrades.steam_webapi.core.WebApiClient
+import io.github.j4ckofalltrades.steam_webapi.types.GetOwnedGamesParams
 import io.github.j4ckofalltrades.steam_webapi.wrapper.IPlayerServiceWrapper
 import io.ktor.client.plugins.logging.*
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -24,6 +25,9 @@ data class Context(
             }
         }
     )
+
+    suspend fun apiGetOwnedGames() =
+        playerApi.getOwnedGames(steamId, GetOwnedGamesParams(includePlayedFreeGames = true))
 }
 
 fun localPropContext() = with(Properties()) {

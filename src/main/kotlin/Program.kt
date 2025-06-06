@@ -1,16 +1,12 @@
 package moe.emi.steamp
 
 import moe.emi.steamp.games.*
-import moe.emi.steamp.io.askAndRefresh
-import moe.emi.steamp.io.getAllGames
+import moe.emi.steamp.io.getGames
 import moe.emi.steamp.io.localPropContext
 
 suspend fun runProgram(additionalGames: (List<Ach>) -> List<Ach>) {
 
-    val games = with(localPropContext()) {
-        askAndRefresh()
-        getAllGames()
-    }
+    val games = getGames(localPropContext())
 
     println("Games owned: ${games.size}")
 
@@ -18,7 +14,7 @@ suspend fun runProgram(additionalGames: (List<Ach>) -> List<Ach>) {
 
     println()
     println("Games in your library that don't count towards avg.:")
-    notCounted.sortedBy(libraryOrderAbc1).onEach { println(it.game.gameName) }
+    notCounted.sortedBy(abc).onEach { println(it.game.gameName) }
 
     println()
     println("Games in your library that count towards avg.: ${counted.size}")
@@ -33,7 +29,7 @@ suspend fun runProgram(additionalGames: (List<Ach>) -> List<Ach>) {
     val average = combined.avgBy { it.percent }
 
     println()
-    println("Avg. completion rate: ${average} in ${combined.size} games")
+    println("Avg. completion rate: $average in ${combined.size} games")
 
     val best = getBestGamesToCompleteNext(combined)
 

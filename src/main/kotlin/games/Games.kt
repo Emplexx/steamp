@@ -27,11 +27,10 @@ val countsTowardsAvg: (GameWithCompletion) -> Boolean = { (it) ->
     it.achievements.isNotEmpty() && it.achievements.any { a -> a.achieved != 0 }
 }
 
-val libraryOrderAbc = { it: GameAchievements -> it.gameName.lowercase().removePrefix("the ") }
-val libraryOrderAbc1 = { it: GameWithCompletion -> libraryOrderAbc(it.game) }
+val abc = { it: GameWithCompletion -> it.game.gameName.lowercase().removePrefix("the ") }
 
 val completionThenAbcComparator = compareByDescending<GameWithCompletion> { it.completionPercent }
-    .thenBy(libraryOrderAbc1)
+    .thenBy(abc)
 
 
 fun combineGames(games: List<GameWithCompletion>) = games
